@@ -1,8 +1,8 @@
 // ==UserScript==
-// @name         学堂在线小助手
+// @name         学堂在线助手_全自动版
 // @namespace    http://tampermonkey.net/
-// @version      6.0
-// @description  底层API劫持实现绝对静音、模拟点击、自动跳转、智能跳过。
+// @version      1.0
+// @description  底层API劫持静音、暴力破解可见性检测、柔性处理后台暂停避免死循环。
 // @author       Aster.
 // @match        *://next.xuetangx.com/learn/*
 // @match        *://*.xuetangx.com/learn/*
@@ -15,32 +15,54 @@
 
     const CONFIG = {
         speed: 1.0,
-        checkInterval: 3000
+        checkInterval: 3000 
     };
 
-    console.log("学堂在线助手 v6.0 已就绪...");
+    console.log("学堂在线助手 v1.0 已就绪...");
 
     try {
         const originalMuted = Object.getOwnPropertyDescriptor(HTMLMediaElement.prototype, 'muted');
         const originalVolume = Object.getOwnPropertyDescriptor(HTMLMediaElement.prototype, 'volume');
-
         Object.defineProperty(HTMLMediaElement.prototype, 'muted', {
             get: originalMuted.get,
-            set: function(val) {
-                return originalMuted.set.call(this, true);
-            }
+            set: function() { return originalMuted.set.call(this, true); }
         });
-
         Object.defineProperty(HTMLMediaElement.prototype, 'volume', {
             get: originalVolume.get,
-            set: function(val) {
-                return originalVolume.set.call(this, 0);
-            }
+            set: function() { return originalVolume.set.call(this, 0); }
         });
-        console.log("成功劫持浏览器底层音量 API，网页已物理失声！");
-    } catch (err) {
-        console.error("底层音量劫持失败:", err);
+    } catch (err) {}
+
+    Object.defineProperty(document, 'hidden', { value: false, writable: false });
+    Object.defineProperty(document, 'visibilityState', { value: 'visible', writable: false });
+
+    Document.prototype.hasFocus = function() { return true; };
+    window.document.hasFocus = function() { return true; };
+
+    const blockVisibilityEvent = (e) => {
+        e.stopImmediatePropagation();
+        e.stopPropagation();
+        e.preventDefault();
+    };
+    window.addEventListener('visibilitychange', blockVisibilityEvent, true);
+    window.addEventListener('blur', blockVisibilityEvent, true);
+    window.addEventListener('pagehide', blockVisibilityEvent, true);
+
+    if (window.IntersectionObserver) {
+        const OriginalObserver = window.IntersectionObserver;
+        window.IntersectionObserver = function(callback, options) {
+            const modifiedCallback = (entries, observer) => {
+                entries.forEach(entry => {
+                    Object.defineProperty(entry, 'isIntersecting', { value: true });
+                    Object.defineProperty(entry, 'intersectionRatio', { value: 1.0 });
+                });
+                callback(entries, observer);
+            };
+            return new OriginalObserver(modifiedCallback, options);
+        };
+        window.IntersectionObserver.prototype = OriginalObserver.prototype;
     }
+
 
     let noVideoCounter = 0;
 
@@ -53,9 +75,7 @@
             const activeItem = document.querySelector('.leaf-item.active') ||
                                document.querySelector('.is-active') ||
                                document.querySelector('.active');
-            if (activeItem) {
-                activeTitle = activeItem.innerText || "";
-            }
+            if (activeItem) activeTitle = activeItem.innerText || "";
 
             if (activeTitle.includes('作业') || activeTitle.includes('讨论') || noVideoCounter >= 3) {
                 console.log("判定当前为非视频任务，正在自动跳过...");
@@ -67,20 +87,6 @@
 
         noVideoCounter = 0;
 
-        if (!video.dataset.superMute) {
-            video.muted = true;
-            video.volume = 0;
-
-            const forceSilence = () => {
-                if (!video.muted) video.muted = true;
-                if (video.volume > 0) video.volume = 0;
-                requestAnimationFrame(forceSilence);
-            };
-            requestAnimationFrame(forceSilence);
-
-            video.dataset.superMute = "true";
-        }
-
         if (video.playbackRate !== CONFIG.speed) {
             video.playbackRate = CONFIG.speed;
         }
@@ -91,6 +97,7 @@
                             document.querySelector('.xt_video_bit_play_btn');
 
             if (playBtn) {
+                console.log("尝试物理点击唤醒...");
                 playBtn.click();
             } else {
                 const videoWrapper = video.parentElement;
@@ -112,9 +119,7 @@
             nextBtns[nextBtns.length - 1].click();
         } else {
             const altNextBtn = document.querySelector('.next');
-            if (altNextBtn) {
-                altNextBtn.click();
-            }
+            if (altNextBtn) altNextBtn.click();
         }
     }
 
